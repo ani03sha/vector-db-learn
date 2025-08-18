@@ -1,2 +1,3 @@
-# vector-db-learn
+# Vector DB Learn
+
 Learning Vector DB using first principles and socratic learning
