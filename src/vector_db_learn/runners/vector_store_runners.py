@@ -1,7 +1,18 @@
 from sentence_transformers import SentenceTransformer
 
-from ..vector_similarity.tiny_vector_store import TinyVectorStore
-from ..brute_force_search.tiny_vector_store_with_metadata import TinyVectorStoreWithMetadata
+# Handle both relative and absolute imports
+try:
+    from ..vector_similarity.tiny_vector_store import TinyVectorStore
+    from ..brute_force_search.tiny_vector_store_with_metadata import TinyVectorStoreWithMetadata
+    from ..approximate_nn.ivf import TinyIVF
+except ImportError:
+    # Fallback for direct execution
+    import sys
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).parent.parent))
+    from vector_similarity.tiny_vector_store import TinyVectorStore
+    from brute_force_search.tiny_vector_store_with_metadata import TinyVectorStoreWithMetadata
+    from approximate_nn.ivf import TinyIVF
 
 
 class VectorStoreRunner:
@@ -89,6 +100,93 @@ class VectorStoreRunner:
         print("Filtered matches:", matches)
         return matches
 
+    def demo_ivf_vector_store(self, texts, embeddings, query="explosions and criminals", k=2, nlist=2, nprobe=1):
+        """Demonstrate IVF (Inverted File) approximate nearest neighbor search."""
+        print("\n=== IVF Vector Store Demo ===")
+
+        # Create and populate IVF store
+        store = TinyIVF(nlist=nlist, iters=10, seed=42)
+
+        # Prepare items for IVF: (id, vector, metadata)
+        items = []
+        for i, (text, vector) in enumerate(zip(texts, embeddings)):
+            metadata = {
+                "title": f"Document {i+1}",
+                "text": text,
+                "category": "action" if "action" in text.lower() else "other"
+            }
+            items.append((f"doc{i+1}", vector.tolist(), metadata))
+
+        # Fit the IVF index (builds clusters)
+        store.fit(items)
+
+        # Search
+        query_vector = self.model.encode([query], normalize_embeddings=True)[0].tolist()
+        matches = store.knn(query_vector, k=k, nprobe=nprobe)
+
+        print(f"Query: '{query}'")
+        print(f"IVF Config: nlist={nlist}, nprobe={nprobe}")
+        print("Top matches (id, score, metadata):", matches)
+        return matches
+
+    def demo_ivf_filtered_search(self, texts, embeddings, query="action movie", category_filter="action", k=2, nlist=2, nprobe=2):
+        """Demonstrate IVF search with metadata filtering."""
+        print("\n=== IVF Filtered Search Demo ===")
+
+        # Create and populate IVF store
+        store = TinyIVF(nlist=nlist, iters=10, seed=42)
+
+        # Prepare items for IVF
+        items = []
+        for i, (text, vector) in enumerate(zip(texts, embeddings)):
+            metadata = {
+                "title": f"Document {i+1}",
+                "text": text,
+                "category": "action" if "action" in text.lower() else "other"
+            }
+            items.append((f"doc{i+1}", vector.tolist(), metadata))
+
+        # Fit the IVF index
+        store.fit(items)
+
+        # Search with filter
+        query_vector = self.model.encode([query], normalize_embeddings=True)[0].tolist()
+        filter_fn = lambda meta: meta.get("category") == category_filter
+        matches = store.knn(query_vector, k=k, nprobe=nprobe, filter_fn=filter_fn)
+
+        print(f"Query: '{query}' (filtered by category: {category_filter})")
+        print(f"IVF Config: nlist={nlist}, nprobe={nprobe}")
+        print("Filtered matches (id, score, metadata):", matches)
+        return matches
+
+    def demo_ivf_performance_comparison(self, texts, embeddings, query="explosions and criminals", k=2):
+        """Compare IVF search with different nprobe values."""
+        print("\n=== IVF Performance Comparison Demo ===")
+
+        # Create and populate IVF store
+        store = TinyIVF(nlist=3, iters=10, seed=42)
+
+        items = []
+        for i, (text, vector) in enumerate(zip(texts, embeddings)):
+            metadata = {
+                "title": f"Document {i+1}",
+                "text": text,
+                "category": "action" if "action" in text.lower() else "other"
+            }
+            items.append((f"doc{i+1}", vector.tolist(), metadata))
+
+        store.fit(items)
+        query_vector = self.model.encode([query], normalize_embeddings=True)[0].tolist()
+
+        print(f"Query: '{query}'")
+        print("Comparing different nprobe values:")
+
+        for nprobe in [1, 2, 3]:
+            matches = store.knn(query_vector, k=k, nprobe=nprobe)
+            print(f"  nprobe={nprobe}: {matches}")
+
+        return matches
+
     def run_all_demos(self):
         """Run all demonstrations."""
         # Encode texts
@@ -101,6 +199,9 @@ class VectorStoreRunner:
         self.demo_basic_vector_store(texts, embeddings)
         self.demo_metadata_vector_store(texts, embeddings)
         self.demo_filtered_search(texts, embeddings)
+        self.demo_ivf_vector_store(texts, embeddings)
+        self.demo_ivf_filtered_search(texts, embeddings)
+        self.demo_ivf_performance_comparison(texts, embeddings)
 
 
 def main():
